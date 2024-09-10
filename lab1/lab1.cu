@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
   cudaMemcpy(output, hostOutput, inputLength, cudaMemcpyHostToDevice);
 
   //@@ Initialize the grid and block dimensions here
-  dim3 DimGrid(ceil(inputLength/256),1,1);
+  dim3 DimGrid(ceil(inputLength/256.0),1,1);
   dim3 DimBlock(256,1,1);
 
   //@@ Launch the GPU Kernel here to perform CUDA computation
