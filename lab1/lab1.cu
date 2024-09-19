@@ -29,15 +29,16 @@ int main(int argc, char **argv) {
 
   //@@ Allocate GPU memory here
   //device memory
+  int size = inputLength*sizeof(float);
   float *input1, *input2, *output;
-  cudaMalloc((void **) &input1, inputLength);
-  cudaMalloc((void **) &input2, inputLength);
-  cudaMalloc((void **) &output, inputLength);
+  cudaMalloc((void **) &input1, size);
+  cudaMalloc((void **) &input2, size);
+  cudaMalloc((void **) &output, size);
 
   //@@ Copy memory to the GPU here
-  cudaMemcpy(input1, hostInput1, inputLength, cudaMemcpyHostToDevice);
-  cudaMemcpy(input2, hostInput2, inputLength, cudaMemcpyHostToDevice);
-  cudaMemcpy(output, hostOutput, inputLength, cudaMemcpyHostToDevice);
+  cudaMemcpy(input1, hostInput1, size, cudaMemcpyHostToDevice);
+  cudaMemcpy(input2, hostInput2, size, cudaMemcpyHostToDevice);
+  cudaMemcpy(output, hostOutput, size, cudaMemcpyHostToDevice);
 
   //@@ Initialize the grid and block dimensions here
   dim3 DimGrid(ceil(inputLength/256.0),1,1);
@@ -48,10 +49,10 @@ int main(int argc, char **argv) {
 
   cudaDeviceSynchronize();
   //@@ Copy the GPU memory back to the CPU here
-  cudaMemcpy(hostOutput, output, inputLength, cudaMemcpyDeviceToHost);
+  cudaMemcpy(hostOutput, output, size, cudaMemcpyDeviceToHost);
 
   //@@ Free the GPU memory here
-  cudaFree(hostInput1); cudaFree(hostInput2); cudaFree(hostOutput);
+  cudaFree(input1); cudaFree(input2); cudaFree(output);
 
   wbSolution(args, hostOutput, inputLength);
 
