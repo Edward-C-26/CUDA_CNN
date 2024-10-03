@@ -11,46 +11,70 @@
   } while (0)
 
 //@@ Define any useful program-wide constants here
-#define TILE_WIDTH 6;
-#define kernalWidth 3;
+#define TILE_WIDTH 4
+#define Mask_Width 3
 
 //@@ Define constant memory for device kernel here
-__constant__ float Mc[kernalWidth][kernalWidth][kernalWidth];
+__constant__ float Mc[Mask_Width][Mask_Width][Mask_Width];
 
 __global__ void conv3d(float *input, float *output, const int z_size, const int y_size, const int x_size) {
   //@@ Insert kernel code here
-  __shared__ float inputTile[TILE_WIDTH][TILE_WIDTH][TILE_WIDTH];
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  int z = blockIdx.z * blockDim.z + threadIdx.z;
 
-  int bx = blockIdx.x; int by = blockIdx.y; int bz = blockIdx.z;
-  int tx = threadIdx.x; int ty = threadIdx.y; int tz= threadIdx.z;
+  int i = z * y_size * x_size + y * x_size + x;
+  int radius = Mask_Width / 2;
+  __shared__ float N_ds[TILE_WIDTH][TILE_WIDTH][TILE_WIDTH];
 
-  int x_o = bx * 16 + tx;
-  int y_o = by * 16 + ty;
-  int z_o = bz * 16 + tz;
-  
-  int x_i = x_o-(kernalWidth-1)/2; // MASK_WIDTH / 2
-  int y_i = y_o-(kernalWidth-1)/2;  
-  int z_i = z_o-(kernalWidth-1)/2;
+
+  if (x >= 0 && x < x_size && y >= 0 && y < y_size && z >= 0 && z < z_size) {
+    N_ds[threadIdx.z][threadIdx.y][threadIdx.x] = input[i]; // boundary checking is missing here
+  } else {
+    N_ds[threadIdx.z][threadIdx.y][threadIdx.x] = 0.0f;
+  }
+  __syncthreads();
+
+
+  int curr_start_point_x = blockIdx.x * blockDim.x;
+  int nxt_start_point_x = (blockIdx.x + 1) * blockDim.x;
+
+  int curr_start_point_y = blockIdx.y * blockDim.y;
+  int nxt_start_point_y = (blockIdx.y + 1) * blockDim.y;
+
+  int curr_start_point_z = blockIdx.z * blockDim.z;
+  int nxt_start_point_z = (blockIdx.z + 1) * blockDim.z;
+
+
+  int Z_start_point = z - radius;
+  int Y_start_point = y - radius;
+  int X_start_point = x - radius;
   float Pvalue = 0;
 
-  if ((x_i >= 0) && (x_i < x_size) && (y_i >= 0) && (y_i < y_size) && z_i >= 0 && z_i < z_size) {
-    inputTile[tz][ty][tx] = input[z_i * y_size * x_size + y_i * x_sizecol_i + x_i];
-  } else {
-    inputTile[tz][ty][tx] = 0.0f;
-  }
-  __syncthreads ();
-
-  if (ty < TILE_WIDTH && tx < TILE_WIDTH && tz < TILE_WIDTH) {
-    for(int i = 0; i < kernalWidth; i++) {
-      for(int j = 0; j < kernalWidth; j++) {
-        for (int k = 0; k < kernalWidth; k++) {
-          Pvalue += Mc[i][j][k] * inputTile[i+tz][j+ty][k+kx];
+  for (int z_it = 0; z_it < Mask_Width; z_it ++) {
+    for (int y_it = 0; y_it < Mask_Width; y_it ++) {
+      for (int x_it = 0; x_it < Mask_Width; x_it ++) {
+        int Z_index = Z_start_point+z_it;
+        int Y_index = Y_start_point+y_it;
+        int X_index = X_start_point+x_it;
+        if (Z_index >= 0 && Z_index < z_size && 
+            Y_index >= 0 && Y_index < y_size && 
+            X_index >= 0 && X_index < x_size) {
+          if ((Z_index >= curr_start_point_z) && (Z_index < nxt_start_point_z) && 
+              (Y_index >= curr_start_point_y) && (Y_index < nxt_start_point_y) && 
+              (X_index >= curr_start_point_x) && (X_index < nxt_start_point_x)) {
+            Pvalue += N_ds[threadIdx.z-radius+z_it][threadIdx.y-radius+y_it][threadIdx.x-radius+x_it] * Mc[z_it][y_it][x_it];
+          } else {
+            Pvalue += input[Z_index*y_size*x_size + Y_index*x_size + X_index] * Mc[z_it][y_it][x_it];
+          }
         }
+
       }
     }
-    output[z_i][y_i][x_i] = Pvalue;
   }
-  __syncthreads ();
+  if (x >= 0 && x < x_size && y >= 0 && y < y_size && z >= 0 && z < z_size) {
+    output[i] = Pvalue; // boundary checking is missing here
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -95,10 +119,10 @@ int main(int argc, char *argv[]) {
   // do
   // not need to be copied to the gpu
   cudaMemcpy(deviceInput, hostInput + 3,(inputLength - 3)*sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpyToSymbol(Mc, hostKernal, kernalLength*sizeof(float))
+  cudaMemcpyToSymbol(Mc, hostKernel, kernelLength*sizeof(float));
 
   //@@ Initialize grid and block dimensions here
-  dim3 dimGrid(ceil(z_size/(1.0*TILE_WIDTH - (kernalWidth-1)/2)), ceil(y_size/(1.0*TILE_WIDTH - (kernalWidth-1)/2)), ceil(x_size/(1.0*TILE_WIDTH - (kernalWidth-1)/2)));
+  dim3 dimGrid(ceil(x_size/(1.0*TILE_WIDTH)),ceil(y_size/(1.0*TILE_WIDTH)),ceil(z_size/(1.0*TILE_WIDTH)));
   dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
 
   //@@ Launch the GPU kernel here
@@ -109,8 +133,7 @@ int main(int argc, char *argv[]) {
   // Recall that the first three elements of the output are the dimensions
   // and should not be set here (they are set below)
   cudaMemcpy(hostInput + 3, deviceInput, (inputLength - 3) * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(hostOutput + 3, hostOutput, (inputLength - 3) * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(hostKernal, hostKernal, kernalLength * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(hostOutput + 3, deviceOutput, (inputLength - 3) * sizeof(float), cudaMemcpyDeviceToHost);
 
   // Set the output dimensions for correctness checking
   hostOutput[0] = z_size;
@@ -121,7 +144,6 @@ int main(int argc, char *argv[]) {
   //@@ Free device memory
   cudaFree(deviceInput);
   cudaFree(deviceOutput);
-  cudaFree(deviceKernal);
 
   // Free host memory
   free(hostInput);
