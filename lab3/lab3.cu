@@ -39,7 +39,7 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
     if (Row < numARows && q * 16 + tx < numAColumns) {
       subTileA[ty][tx] = A[A_pos];
     } else {
-        subTileA[ty][tx] = 0;
+      subTileA[ty][tx] = 0;
     }
 
     if (q * 16 + ty < numBRows && Col < numBColumns) {
