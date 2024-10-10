@@ -11,6 +11,7 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --gpu-bind=closest
 #SBATCH --account=bche-delta-gpu
+#SBATCH --constraint="projects,perf,nvperf"
 #SBATCH -t 00:25:00
 
 module reset
@@ -18,7 +19,9 @@ module load cuda
 
 echo -e "job $SLURM_JOBID is starting on `hostname`\n\n"
 
-srun ./m1_gpu 100 > m1_gpu.out
+# srun ./m1_gpu 1000 > m1_gpu.out
 
 # Generate nsys profile information, output will be in profile.out
 # srun nsys profile --stats=true ./m1_gpu > profile.out
+
+srun ncu -f -o analysis_file ./m1_gpu 100 > ncu.out
