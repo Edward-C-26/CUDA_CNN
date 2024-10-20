@@ -20,10 +20,10 @@ __global__ void matrixMultiply(float *A, float *B, float *C, int numARows,
                                int numCColumns)
 {
   //@@ Implement matrix multiplication kernel here
-  int Col = blockIdx.x * blockDim.x + threadIdx.x;
-  int Row = blockIdx.y * blockDim.y + threadIdx.y;
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  if (Col < numCColumns && Row < numCRows) {
+  if (x < numCColumns && y < numCRows) {
     float sum = 0.0;
     
     for (int i_col = 0; i_col < numAColumns; i_col++) {
