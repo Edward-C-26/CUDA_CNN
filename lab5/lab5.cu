@@ -23,8 +23,12 @@ __global__ void total(float *input, float *output, int len) {
   __shared__ float partialSum[2*BLOCK_SIZE];
   unsigned int t = threadIdx.x;
   unsigned int start = 2 * blockIdx.x * blockDim.x;
-  partialSum[t] = input[start + t];
-  partialSum[blockDim.x + t] = input[start + blockDim.x + t];
+  if (start+t < len) {
+    partialSum[t] = input[start + t];
+  }
+  if (start+blockDim.x+t < len) {
+    partialSum[blockDim.x + t] = input[start + blockDim.x + t];
+  }
   for (unsigned int stride = blockDim.x; stride >= 1; stride >>= 1) {
     __syncthreads();
     if (t < stride) {
