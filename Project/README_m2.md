@@ -3,6 +3,8 @@
 
 ***Deadline: November 8th, 2024 8PM***
 
+Please check [this](https://campuswire.com/c/GF7DDC41F/feed/653) Campuswire post regularly for project FAQ and updates.
+
 For each milestone, you will also need to complete a report on Canvas. The table below contains all of the deliverables.
 
 | Deliverables                                                             |
@@ -47,11 +49,11 @@ Modify `./project/src/layer/custom/matmul_unroll.cu` to complete the GPU convolu
 The convolution forward process consists of the following steps:
 - Unroll the input matrix
 - Perform matrix multiplication
-- Permute the result of the matrix multiplication. The output feature map initially has the shape Map_out x Batch x Height_out x Width_out, which needs to be permuted to Batch x Map_out x Height_out x Width_out.
+- Permute the result of the matrix multiplication. The output feature map initially has the shape `Map_out` x `Batch` x `Height_out` x `Width_out`, which needs to be permuted to `Batch` x `Map_out` x `Height_out` x `Width_out`.
 
 The matrix multiplication kernel and the permute kernel are provided. You will focus on implementing the input matrix unrolling kernel.
 
-In lecture 12, we covered how to unroll the input features for a single image. To unroll a batch of images, the unrolled features for each image in the batch should be concatenated. In other words, the shape of the unrolled matrix will be Batch x Height_unrolled x Width_unrolled.
+In lecture 12, we covered how to unroll the input features for a single image. To unroll a batch of images, the unrolled matrix for each image in the batch should be concatenated along the row dimension. In other words, if the unrolled matrix of a single image has a shape of `H` x `W`, then the unrolled matrix of a batch of images will have a shape of `H` x `(Batch * W)`.
 
 In your template, the host code is separated into 3 parts. `conv_forward_gpu_prolog` allocates memory and copies data from host to device (Note: the device pointers given to you in this function are double pointers). `conv_forward_gpu` invokes input unrolling and matrix multiplication kernel. `conv_forward_gpu_epilog` copies output back to host and frees the device memory.
 
@@ -69,7 +71,7 @@ runs the code specified in `./project/src/layer/custom/matmul_unroll.cu` program
 
 If your implementation is correct, it will show the same accuracy as Milestone 1.
 
-The sum of OP times on batch_size=10000 should be approximately 200 ms. You must have correct accuracies and total OP time less than 600 ms to earn full credits on the coding part.
+The sum of OP times on batch_size=10000 should be approximately 200 ms. You must have correct accuracies and total OP time less than 1200 ms to earn full credits on the coding part.
 
 **To speed up testing, replace `#SBATCH --constraint="projects,perf,nvperf"` with `#SBATCH --constraint="projects"` when testing your code.**
 
@@ -97,7 +99,7 @@ You will complete your report in the Quizzes section on Canvas. Below is a brief
 | How does this optimization work in theory? Expected behavior?                                                                                                                                                                                                                                                                                                               |
 | How did you implement your code? Explain thoroughly and show code snippets.                                                                                                                                                                                                                                                                                                 |
 | List 2 Op Times, whole program execution time, and accuracy for batch size of 100, 1k, and 10k images.                                                                                                                                                                                                                                                                      |
-| For batch size of 10k images, is matrix multiplication with input unrolling faster or slower than convolution in terms of Op Time? Explain why. Support your explanation with specific profiling data. (Include a Memory Chart screenshot from the first launch of your matrix multiplication kernel, located in the Memory Workload Analysis section of the details page.) |
+| For batch size of 10k images, is matrix multiplication with input unrolling faster or slower than your Milestone 1 basic GPU convolution in terms of Op Time? Explain why. Support your explanation with specific profiling data. (Include a Memory Chart screenshot from the first launch of your matrix multiplication kernel, located in the Memory Workload Analysis section of the details page.) |
 | Propose an optimization for your implementation and explain how it improves performance or efficiency.                                                                                                                                                                                                                                                                      |
 | List your references used while implementing this technique. (you must mention textbook pages at the minimum)                                                                                                                                                                                                                                                               |
 
