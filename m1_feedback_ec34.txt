@@ -1,0 +1,16 @@
+----- Feedback -----
+Student ID: ec34
+Assignment: m1
+Commit: f08655dee544a8aa182f67936ac92c7aaa390682
+CPU Total Batches: [100, 1000, 3000]
+CPU Correct Batches: []
+CPU Batches Wrong Accuracy: [100, 1000, 3000]
+CPU Batches Wrong OP Time: []
+CPU Grade: 0/5
+GPU Total Batches: [100, 1000, 10000]
+GPU Correct Batches: []
+GPU Batches Wrong Accuracy: [100, 1000, 10000]
+GPU Batches Wrong OP Time: []
+GPU Grade: 0/5
+Total Grade: 0/10
+--------------------
