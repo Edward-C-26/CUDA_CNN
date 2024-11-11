@@ -31,21 +31,27 @@ __global__ void matrix_unrolling_kernel(const float *input, float *output,
     // float a = in_4d(0,0,0,0)
 
     #define in_4d(i3, i2, i1, i0) input[(i3) * (Channel * Height * Width) + (i2) * (Height * Width) + (i1) * (Width) + i0]
-    #define out_3d(i2, i1, i0) output[Batch * (i2) * (i1) + i0]
+    #define out_3d(i2, i1, i0) output[(size_t)((i2) * (Height_out * Batch * Width_out)) + (size_t)((i1) * (Height_out * Width_out)) + (size_t)(i0)]
 
     // TODO: Insert your input matrix unrolling kernel code here
     int t = blockIdx.x * blockDim.x + threadIdx.x;
-    int h_unroll = Height_out * Width_out;
-    if (t < Batch * h_unroll) {
+    int out_size = Height_out * Width_out;
+
+    if (t < Batch * out_size) {
+        size_t b = t / out_size;                  // Batch index
+        size_t h_out = (t / Width_out) % Height_out;
         size_t w_out = t % Width_out;
-        size_t h_out = t / Width_out % Height_out;
-        size_t b = t / h_unroll;
+
         for (int c = 0; c < Channel; c++) {
-            int w_base = c * (K * K);
+            int w_base = c * (K * K);             // Base offset for each channel
+
             for (int p = 0; p < K; p++) {
                 for (int q = 0; q < K; q++) {
-                    size_t w_unroll = w_base + p * K + q;
-                    out_3d(h_unroll, w_unroll, t) = in_4d(b, c, h_out + p, w_out + q);
+                    size_t h_unroll = w_base + p * K + q;
+                    size_t w_unroll = h_out * Width_out + w_out;
+
+                    // Ensure out_3d and in_4d macros align correctly with indexing
+                    out_3d(h_unroll, b, w_unroll) = in_4d(b, c, h_out + p, w_out + q);
                 }
             }
         }
@@ -151,7 +157,7 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
     cudaMalloc((void**)&matmul_output, Batch * Map_out * Height_out * Width_out * sizeof(float));
 
     // TODO: Set the kernel dimensions and call the matrix unrolling kernel.
-    int num_threads = Batch * Height_out * Width_out;
+    int num_threads = Batch * Height_out * Width_out * Channel;
     int num_blocks = ceil(1.0f * num_threads / BLOCK_SIZE);
     matrix_unrolling_kernel<<<num_blocks, BLOCK_SIZE>>>(device_input, unrolled_matrix, Batch, Channel, Height, Width, K);
 
