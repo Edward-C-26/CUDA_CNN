@@ -26,3 +26,4 @@ echo -e "job $SLURM_JOBID is starting on `hostname`\n\n"
 # Generate gprof output
 srun ./m1_cpu 1000 && gprof -Q ./m1_cpu gmon.out > outfile
 
+

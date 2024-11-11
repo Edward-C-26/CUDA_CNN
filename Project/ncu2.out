@@ -1,0 +1,29 @@
+Test batch size: 10000
+Loading fashion-mnist data...Done
+Loading model...Done
+Conv-GPU==
+==PROF== Connected to process 922052 (/u/echow1/ece408git/Project/m2)
+==PROF== Profiling "prefn_marker_kernel()" - 0: 0%....50%....100% - 34 passes
+==PROF== Profiling "matrix_unrolling_kernel" - 1: 0%
+==WARNING== Backing up device memory in system memory. Kernel replay might be slow. Consider using "--replay-mode application" to avoid memory save-and-restore.
+
+==WARNING== Backing up device memory in system memory. Kernel replay might be slow. Consider using "--replay-mode application" to avoid memory save-and-restore.
+....50%....100% - 34 passes
+==PROF== Profiling "matrixMultiplyShared" - 2: 0%....50%....100% - 34 passes
+==PROF== Profiling "matrix_permute_kernel" - 3: 0%....50%....100% - 34 passes
+==PROF== Profiling "do_not_remove_this_kernel()" - 4: 0%....50%....100% - 34 passes
+Layer Time: 43501.7 ms
+Op Time: 43328 ms
+Conv-GPU==
+==PROF== Profiling "prefn_marker_kernel()" - 5: 0%....50%....100% - 34 passes
+==PROF== Profiling "matrix_unrolling_kernel" - 6: 0%....50%....100% - 34 passes
+==PROF== Profiling "matrixMultiplyShared" - 7: 0%....50%....100% - 34 passes
+==PROF== Profiling "matrix_permute_kernel" - 8: 0%....50%....100% - 34 passes
+==PROF== Profiling "do_not_remove_this_kernel()" - 9: 0%....50%....100% - 34 passes
+Layer Time: 30124.4 ms
+Op Time: 29984.8 ms
+
+Test Accuracy: 0.8714
+
+==PROF== Disconnected from process 922052
+==PROF== Report: /u/echow1/ece408git/Project/analysis_file2.ncu-rep
