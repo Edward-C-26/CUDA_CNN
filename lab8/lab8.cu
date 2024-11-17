@@ -14,6 +14,22 @@ __global__ void spmvJDSKernel(float *out, int *matColStart, int *matCols,
                               int *matRowPerm, int *matRows,
                               float *matData, float *vec, int dim) {
   //@@ insert spmv kernel for jds format
+  int rowIdx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (rowIdx < dim) {
+    float dotProduct = 0.0f;
+
+    for (int diag = 0; diag < matRows[rowIdx]; diag++) {
+      int colStart = matColStart[diag];
+      int jds_pos = colStart + rowIdx;
+
+        int col = matCols[jds_pos];
+        dotProduct += vec[col] * matData[jds_pos];
+
+    }
+
+    // Write the result to the output using the original row order
+    out[matRowPerm[rowIdx]] = dotProduct;
+  }
 }
 
 static void spmvJDS(float *out, int *matColStart, int *matCols,
@@ -21,6 +37,11 @@ static void spmvJDS(float *out, int *matColStart, int *matCols,
                     float *vec, int dim) {
 
   //@@ invoke spmv kernel for jds format
+  dim3 dimGrid(256, 1, 1); // amount of threads in grid is the amount of nonzeros in a row padded to the max
+  dim3 dimBlock(ceil(dim*1.0f/256), 1, 1);
+
+  spmvJDSKernel<<<dimGrid, dimBlock>>>(out, matColStart, matCols, matRowPerm, matRows, matData, vec, dim);
+  
 }
 
 int main(int argc, char **argv) {
@@ -89,6 +110,7 @@ int main(int argc, char **argv) {
 
   // Copy output memory to the CPU
   cudaMemcpy(hostOutput, deviceOutput, sizeof(float) * dim, cudaMemcpyDeviceToHost);
+
 
   // Free GPU Memory
   cudaFree(deviceVector);
