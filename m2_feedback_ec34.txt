@@ -1,0 +1,10 @@
+----- Feedback -----
+Student ID: ec34
+Assignment: m2
+Commit: 58cc111be13452e92daca0b0b1ee9bd9ea2562f0
+Total Batches: [100, 1000, 8767, 10000]
+Correct Batches: [100, 1000, 8767, 10000]
+Batches Wrong Accuracy: []
+Batches Wrong OP Time: []
+Grade: 10.0/10
+--------------------
