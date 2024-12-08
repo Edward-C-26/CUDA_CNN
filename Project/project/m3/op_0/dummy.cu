@@ -5,14 +5,30 @@
 #define TILE_WIDTH 16
 #define BLOCK_SIZE 256
 
+__constant__ float weight_matrix[4096];
+
 /*
-op 0: 
+op 0: Weight matrix (Kernel) in constant memory
+code: completed
+profiling: NOT COMPELTED
+
+Test batch size: 10000
+Loading fashion-mnist data...Done
+Loading model...Done
+Conv-GPU==
+Layer Time: 271.69 ms
+Op Time: 66.2909 ms
+Conv-GPU==
+Layer Time: 202.445 ms
+Op Time: 76.7939 ms
+
+Test Accuracy: 0.8714
 */
 
-__global__ void matrix_unrolling_kernel(const float *input, float *output,
-                                        const int Batch, const int Channel,
-                                        const int Height, const int Width,
-                                        const int K) {
+__global__ void matrix_unrolling_kernel(const float*  input, float*  output,
+                                        const int Batch, const int  Channel,
+                                        const int  Height, const int  Width,
+                                        const int  K) {
     /*
     Modify this function to implement the input matrix unrolling kernel.
 
@@ -66,10 +82,10 @@ __global__ void matrix_unrolling_kernel(const float *input, float *output,
 
 // Tiled matrix multiplication kernel. Computes C = AB
 // You don't need to modify this kernel.
-__global__ void matrixMultiplyShared(const float *A, const float *B, float *C,
-                                     int numARows, int numAColumns,
-                                     int numBRows, int numBColumns,
-                                     int numCRows, int numCColumns)
+__global__ void matrixMultiplyShared(const float*  B, float*  C,
+                                     int  numARows, int  numAColumns,
+                                     int  numBRows, int  numBColumns,
+                                     int  numCRows, int  numCColumns)
 {
     __shared__ float tileA[TILE_WIDTH][TILE_WIDTH];
     __shared__ float tileB[TILE_WIDTH][TILE_WIDTH];
@@ -81,7 +97,7 @@ __global__ void matrixMultiplyShared(const float *A, const float *B, float *C,
 
     for (int tileId = 0; tileId < (numAColumns - 1) / TILE_WIDTH + 1; tileId++) {
         if (row < numARows && tileId * TILE_WIDTH + tx < numAColumns) {
-            tileA[ty][tx] = A[(size_t) row * numAColumns + tileId * TILE_WIDTH + tx];
+            tileA[ty][tx] = (weight_matrix[(size_t) row * numAColumns + tileId * TILE_WIDTH + tx]);
         } else {
             tileA[ty][tx] = 0;
         }
@@ -109,8 +125,8 @@ __global__ void matrixMultiplyShared(const float *A, const float *B, float *C,
 // The output feature map after matmul is of shape Map_out x Batch x Height_out x Width_out,
 // and we need to permute it into Batch x Map_out x Height_out x Width_out.
 // You don't need to modify this kernel.
-__global__ void matrix_permute_kernel(const float *input, float *output, int Map_out,
-                                      int Batch, int image_size) {
+__global__ void matrix_permute_kernel(const float*  input, float*  output, int  Map_out,
+                                      int  Batch, int  image_size) {
     int b = blockIdx.y;
     int x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
     if (x < image_size) {
@@ -121,7 +137,8 @@ __global__ void matrix_permute_kernel(const float *input, float *output, int Map
     }
 }
 
-__host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, const float *host_input, const float *host_mask, float **device_output_ptr, float **device_input_ptr, float **device_mask_ptr, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
+//even thougth the host variables are access at most once here, making it "read only" could help
+__host__ void GPUInterface::conv_forward_gpu_prolog(const float*  host_output, const float*  host_input, const float*  host_mask, float **device_output_ptr, float **device_input_ptr, float **device_mask_ptr, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
     // TODO: Allocate memory and copy over the relevant data structures to the GPU
     const int Height_out = Height - K + 1;
@@ -132,11 +149,10 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
     size_t o_size = Batch * Map_out * Height_out * Width_out * sizeof(float);
 
     cudaMalloc((void**) device_input_ptr, i_size);
-    cudaMalloc((void**) device_mask_ptr, m_size);
     cudaMalloc((void**) device_output_ptr, o_size);
 
     cudaMemcpy(*device_input_ptr, host_input, i_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(*device_mask_ptr, host_mask, m_size, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(weight_matrix, host_mask, m_size, 0, cudaMemcpyHostToDevice);
 
     // Error Check
     cudaError_t error = cudaGetLastError();
@@ -148,7 +164,7 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
 }
 
 
-__host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *device_input, const float *device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
+__host__ void GPUInterface::conv_forward_gpu(float*  device_output, const float*  device_input, const float*  device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
     const int Height_out = Height - K + 1;
     const int Width_out = Width - K + 1;
@@ -170,7 +186,7 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
     int matmul_h = ceil(1.0f * Map_out / TILE_WIDTH);
     dim3 dimGrid(matmul_w, matmul_h, 1);
     dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
-    matrixMultiplyShared<<<dimGrid, dimBlock>>>(device_mask, unrolled_matrix, matmul_output, Map_out, Height_unrolled, Height_unrolled, Width_unrolled, Map_out, Width_unrolled);
+    matrixMultiplyShared<<<dimGrid, dimBlock>>>(unrolled_matrix, matmul_output, Map_out, Height_unrolled, Height_unrolled, Width_unrolled, Map_out, Width_unrolled);
 
     // Permute the result of matrix multiplication
     const int out_image_size = Height_out * Width_out;
@@ -184,7 +200,7 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
 }
 
 
-__host__ void GPUInterface::conv_forward_gpu_epilog(float *host_output, float *device_output, float *device_input, float *device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
+__host__ void GPUInterface::conv_forward_gpu_epilog(float *host_output, float *device_output, float*  device_input, float*  device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
     // TODO: Copy the output back to host
     cudaMemcpy(host_output, device_output, Batch * Map_out * (Height - K + 1) * (Width - K + 1) * sizeof(float), cudaMemcpyDeviceToHost);
@@ -192,7 +208,6 @@ __host__ void GPUInterface::conv_forward_gpu_epilog(float *host_output, float *d
     // TODO: Free device memory
     cudaFree(device_input);
     cudaFree(device_output);
-    cudaFree(device_mask);
 }
 
 

@@ -6,108 +6,74 @@
 #define BLOCK_SIZE 256
 
 /*
-Req 2: Kernel fusion for unrolling and matrix-multiplication
-Code: Completed (Can be optimized by decreasing the input variables into the kernel)
-Profiling: NOT COMPLETED
+Test batch size: 10000
+Loading fashion-mnist data...Done
+Loading model...Done
+Conv-GPU==
+Layer Time: 211.331 ms
+Op Time: 50.5587 ms
+Conv-GPU==
+Layer Time: 152.88 ms
+Op Time: 30.3197 ms
+
+Test Accuracy: 0.8714
 */
 
-__global__ void matrix_unrolling_kernel(const float *input, float *output,  
-                                        const float *A, float *C,
+__global__ void matrix_unrolling_kernel(const float *input, const float *weight_matrix, float *C,
                                         const int Batch, const int Channel,
                                         const int Height, const int Width,
-                                        const int K,
-                                        int numARows, int numAColumns,
-                                        int numBRows, int numBColumns,
-                                        int numCRows, int numCColumns) {
-    /*
-    Modify this function to implement the input matrix unrolling kernel.
-
-    Function paramter definitions:
-    input - input
-    output - output
-    Batch - batch_size (number of images in x)
-    Channel - number of input feature maps
-    Height - input height dimension
-    Width - input width dimension
-    K - kernel height and width (K x K)
-    */
+                                        const int K, int Map_out, int Height_unrolled, int Width_unrolled) {
     const int Height_out = Height - K + 1;
     const int Width_out = Width - K + 1;
-    // (void)Height_out; // silence declared but never referenced warning. remove this line when you start working
-    // (void)Width_out; // silence declared but never referenced warning. remove this line when you start working
-
-    // We have some nice #defs for you below to simplify indexing. Feel free to use them, or create your own.
-    // An example use of these macros:
-
-    #define in_4d(i3, i2, i1, i0) input[(i3) * (Channel * Height * Width) + (i2) * (Height * Width) + (i1) * (Width) + i0]
-    #define out_3d(i2, i1, i0) output[(size_t)((i2) * (Height_out * Batch * Width_out)) + (size_t)((i1) * (Height_out * Width_out)) + (size_t)(i0)]
-
-    // TODO: Insert your input matrix unrolling kernel code here
-    int t = blockIdx.x * gridDim.y * TILE_WIDTH * TILE_WIDTH + blockIdx.y * TILE_WIDTH * TILE_WIDTH +(threadIdx.x * TILE_WIDTH + threadIdx.y);
-    int out_size = Height_out * Width_out;
-
-    if (t < Batch * out_size) {
-        size_t b = t / out_size;                  // Batch index
-        size_t h_out = (t / Width_out) % Height_out;
-        size_t w_out = t % Width_out;
-
-        for (int c = 0; c < Channel; c++) {
-            int w_base = c * (K * K);             // Base offset for each channel
-            for (int p = 0; p < K; p++) {
-                for (int q = 0; q < K; q++) {
-                    size_t h_unroll = w_base + p * K + q;
-                    size_t w_unroll = h_out * Width_out + w_out;
-
-                    // Ensure out_3d and in_4d macros align correctly with indexing
-                    out_3d(h_unroll, b, w_unroll) = in_4d(b, c, h_out + p, w_out + q);
-                }
-            }
-        }
-    }
-    __syncthreads();
     
     // Matmul
-    __shared__ float tileA[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float tileB[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float tileA[TILE_WIDTH * TILE_WIDTH];
+    __shared__ float tileB[TILE_WIDTH * TILE_WIDTH];
 
     int by = blockIdx.y, bx = blockIdx.x, ty = threadIdx.y, tx = threadIdx.x;
 
     int row = by * TILE_WIDTH + ty, col = bx * TILE_WIDTH + tx;
+    int out_size = Height_out * Width_out;
+    int b_offset = Channel * Height * Width;
+    int size = Height*Width;
+
     float val = 0;
 
-    for (int tileId = 0; tileId < (numAColumns - 1) / TILE_WIDTH + 1; tileId++) {
-        if (row < numARows && tileId * TILE_WIDTH + tx < numAColumns) {
-            tileA[ty][tx] = A[(size_t) row * numAColumns + tileId * TILE_WIDTH + tx];
+    for (int tileId = 0; tileId < (Height_unrolled - 1) / TILE_WIDTH + 1; tileId++) {
+        if (row < Map_out && tileId * TILE_WIDTH + tx < Height_unrolled) {
+            tileA[ty*16 + tx] = weight_matrix[row * Height_unrolled + tileId * TILE_WIDTH + tx];
         } else {
-            tileA[ty][tx] = 0;
+            tileA[ty*16 + tx] = 0;
         }
-        if (col < numBColumns && tileId * TILE_WIDTH + ty < numBRows) {
-            tileB[ty][tx] = output[((size_t) tileId * TILE_WIDTH + ty) * numBColumns + col];
+        if (col < Width_unrolled && tileId * TILE_WIDTH + ty < Height_unrolled) {
+            int row_unrolled = tileId * TILE_WIDTH + ty;
+            int col_unrolled = col;
+
+            int b_num = col_unrolled / (out_size);
+            int c_num = row_unrolled / (K * K);
+            int height = row_unrolled % (K * K) / K + col % (out_size) / Width_out;
+            int width = row_unrolled % (K * K) % K + col % (out_size) % Width_out;
+
+            tileB[ty*16 +tx] = input[(b_num) * (b_offset) + (c_num) * (size) + (height) * (Width) + width];
+            
         } else {
-            tileB[ty][tx] = 0;
+            tileB[ty*16 +tx] = 0;
         }
         __syncthreads();
 
-        if (row < numCRows && col < numCColumns) {
+        if (row < Height_unrolled && col < Width_unrolled) {
             for (int i = 0; i < TILE_WIDTH; i++) {
-                val += tileA[ty][i] * tileB[i][tx];
+                val += tileA[ty*16+i] * tileB[i*16+tx];
             }
         }
         __syncthreads();
     }
 
     // Permute occurs here
-    if (row < numCRows && col < numCColumns) {
-        int curr_batch = col / out_size;
-        int curr_map_out = row;
-        int curr_out_pos = col % out_size;
-        C[curr_batch * numARows * Width_out * Height_out + curr_map_out * Width_out * Height_out + curr_out_pos] = val; //numARows is just map_out
-       
+    if (row < Height_unrolled && col < Width_unrolled) {
+        C[col / out_size * Map_out * Width_out * Height_out + row * Width_out * Height_out + col % out_size] = val; 
     }
 
-
-    #undef out_3d
-    #undef in_4d
 }
 
 
@@ -145,19 +111,13 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
     const int Height_unrolled = Channel * K * K;
     const int Width_unrolled = Batch * Height_out * Width_out;
 
-    float *unrolled_matrix;  // Pointer to device memory for storing the unrolled matrix
-    float *matmul_output;    // Pointer to device memory for storing the result of matrix multiplication
-    cudaMalloc((void**)&unrolled_matrix, (size_t) Batch * Channel * K * K * Height_out * Width_out * sizeof(float));
-    cudaMalloc((void**)&matmul_output, Batch * Map_out * Height_out * Width_out * sizeof(float));
 
     // TODO: Set the kernel dimensions and call the matrix unrolling kernel.
     int width_grid = Channel > Map_out ? Channel: Map_out;
     dim3 block(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 grid(ceil(1.0f * Width_unrolled / TILE_WIDTH), ceil(1.0f * width_grid / TILE_WIDTH), 1);
-    matrix_unrolling_kernel<<<grid, block>>>(device_input, unrolled_matrix, device_mask, device_output, Batch, Channel, Height, Width, K, Map_out, Height_unrolled, Height_unrolled, Width_unrolled, Map_out, Width_unrolled);
+    matrix_unrolling_kernel<<<grid, block>>>(device_input, device_mask, device_output, Batch, Channel, Height, Width, K, Map_out, Height_unrolled, Width_unrolled);
 
-    cudaFree(matmul_output);
-    cudaFree(unrolled_matrix);
 }
 
 

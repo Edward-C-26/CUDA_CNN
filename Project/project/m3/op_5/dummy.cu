@@ -2,33 +2,15 @@
 #include <iostream>
 #include "gpu-new-forward.h"
 
-
 #define TILE_WIDTH 16
 #define BLOCK_SIZE 256
 
 /*
-Req 1: Using Tensor Cores/Joint Register and Shared Memory Tiling to speed up matrix multiplication a
-Code: correct accuracy at 100 and 1000 batch size but fails at 10000 batch size
+Op 5: FP16 
+Code: NOT Completed
 Profiling: NOT COMPLETED
-
-Test batch size: 10000
-Loading fashion-mnist data...Done
-Loading model...Done
-Conv-GPU==
-Layer Time: 250.427 ms
-Op Time: 71.6486 ms
-Conv-GPU==
-Layer Time: 180.345 ms
-Op Time: 50.179 ms
-
-Test Accuracy: 0.8714
-
-========= CUDA-MEMCHECK
-========= This tool is deprecated and will be removed in a future release of the CUDA toolkit
-========= Please use the compute-sanitizer tool as a drop-in replacement
-========= ERROR SUMMARY: 0 errors
-
 */
+
 
 __global__ void matrix_unrolling_kernel(const float *input, float *output,
                                         const int Batch, const int Channel,
@@ -85,52 +67,62 @@ __global__ void matrix_unrolling_kernel(const float *input, float *output,
     #undef in_4d
 }
 
+__global__ void float_to_half(half *out, const float *in, size_t height, size_t width, size_t rounded_height, size_t rounded_width) {
+    size_t row = (blockIdx.x * blockDim.x + threadIdx.x) / rounded_width;
+    size_t col = (blockIdx.x * blockDim.x + threadIdx.x) % rounded_width;
+    if (col < rounded_width && row < rounded_height) {
+        if (col < width && row < height) {
+            out[col + row * rounded_width] = __float2half(in[col + row * width]);
+        } else {
+            out[col + row * rounded_width] = __float2half(0.0f);
+        }
+
+    }
+}
+
+
 // Tiled matrix multiplication kernel. Computes C = AB
 // You don't need to modify this kernel.
-__global__ void matrixMultiplyShared(const float *A, const float *B, float *C,
-                                     int numARows, int numAColumns,
-                                     int numBRows, int numBColumns,
-                                     int numCRows, int numCColumns)
-{
-    __shared__ half tileA[TILE_WIDTH * TILE_WIDTH];
-    __shared__ half tileB[TILE_WIDTH * TILE_WIDTH];
-    __shared__ float tileC[TILE_WIDTH * TILE_WIDTH];
+__global__ void wmma_matrix_mul(half *a, half *b, float *c, int M, int N, int K) {
+    // Leading dimensions. Packed with no transpositions.
+    int lda = K;
+    int ldb = N;
+    int ldc = N;
+     
+    // Tile using a 2D grid
+    int warpM = (blockIdx.y );
+    int warpN = (blockIdx.x );
 
-    int by = blockIdx.y, bx = blockIdx.x, ty = threadIdx.y, tx = threadIdx.x;
+    // Declare the fragments
+    wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> b_frag;
+    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> acc_frag;
 
-    int row = by * TILE_WIDTH + ty, col = bx * TILE_WIDTH + tx;
-
-    wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc_frag;
     wmma::fill_fragment(acc_frag, 0.0f);
 
-    for (int tileId = 0; tileId < (numAColumns - 1) / TILE_WIDTH + 1; tileId++) {
-        if (row < numARows && tileId * TILE_WIDTH + tx < numAColumns) {
-            tileA[ty * 16 + tx] = A[(size_t) row * numAColumns + tileId * TILE_WIDTH + tx];
-        } else {
-            tileA[ty * 16 + tx] = 0.0f;
+    // Loop over the K-dimension
+    for (int i = 0; i < K; i += WMMA_K) {
+        int aRow = warpM * WMMA_M;
+        int aCol = i;
+        int bRow = i;
+        int bCol = warpN * WMMA_N;
+        
+        // Bounds checking
+        if (aRow < M && aCol < K && bRow < K && bCol < N) {
+            wmma::load_matrix_sync(a_frag, a + aCol + aRow * lda, lda);
+            wmma::load_matrix_sync(b_frag, b + bCol + bRow * ldb, ldb);
+    
+            // Perform the matrix multiplication
+            wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
         }
-        if (col < numBColumns && tileId * TILE_WIDTH + ty < numBRows) {
-            tileB[ty * 16 + tx] = B[((size_t) tileId * TILE_WIDTH + ty) * numBColumns + col];
-        } else {
-            tileB[ty * 16 + tx] = 0.0f;
-        }
-        __syncthreads();
+    }       
 
-
-        wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;
-        wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag;
-        wmma::load_matrix_sync(a_frag, tileA, 16);
-        wmma::load_matrix_sync(b_frag, tileB, 16);
-        wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
-        __syncthreads();
-    }
-
-
-
-    wmma::store_matrix_sync(tileC, acc_frag, 16, wmma::mem_row_major);
-
-    if (row < numCRows && col < numCColumns) {
-        C[row * numCColumns + col] = tileC[ty * 16 + tx];
+    // Load in current value of c
+    int cRow = warpM * WMMA_M;
+    int cCol = warpN * WMMA_N;
+    
+    if (cRow < M && cCol < N) {
+        wmma::store_matrix_sync(c + cCol + cRow * ldc, acc_frag, ldc, wmma::mem_row_major);
     }
 }
 
@@ -149,6 +141,16 @@ __global__ void matrix_permute_kernel(const float *input, float *output, int Map
         }
     }
 }
+
+__global__ void downsize_matrix(float *matmul_output, const float *out_padded_matrix, int Map_out, int Width_unrolled, int rounded_M, int rounded_N) {
+    size_t row = (blockIdx.x * blockDim.x + threadIdx.x) / rounded_N;
+    size_t col = (blockIdx.x * blockDim.x + threadIdx.x) % rounded_N;
+    if (col < Width_unrolled && row < Map_out) {
+        matmul_output[col + row * rounded_N] = __half2float(out_padded_matrix[col + row * Width_unrolled]);
+    }
+}
+
+
 
 __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, const float *host_input, const float *host_mask, float **device_output_ptr, float **device_input_ptr, float **device_mask_ptr, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
@@ -179,12 +181,23 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
 
 __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *device_input, const float *device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
-    const int Height_out = Height - K + 1;
-    const int Width_out = Width - K + 1;
-    const int Height_unrolled = Channel * K * K;
-    const int Width_unrolled = Batch * Height_out * Width_out;
+    const size_t Height_out = Height - K + 1;
+    const size_t Width_out = Width - K + 1;
+    const size_t Height_unrolled = Channel * K * K;
+    const size_t Width_unrolled = Batch * Height_out * Width_out;
 
     float *unrolled_matrix;  // Pointer to device memory for storing the unrolled matrix
+    //half conversions of matrix inputs;
+    half *unrolled_matrix_half; // set size to be padded
+    half *weight_matrix_half;  // set size to be padded
+    float *out_padded_matrix;  // set size to be padded
+    size_t rounded_M = ceil(1.0f * Map_out / 16) * 16;
+    size_t rounded_K = ceil(1.0f * Height_unrolled / 16) * 16;
+    size_t rounded_N = ceil(1.0f * Width_unrolled / 16) * 16;
+    cudaMalloc((void**)&unrolled_matrix_half, (size_t) rounded_N * rounded_K * sizeof(half));
+    cudaMalloc((void**)&weight_matrix_half, (size_t)  rounded_M * rounded_K * sizeof(half));
+    cudaMalloc((void**)&out_padded_matrix, (size_t) rounded_M * rounded_N * sizeof(float));
+
     float *matmul_output;    // Pointer to device memory for storing the result of matrix multiplication
     cudaMalloc((void**)&unrolled_matrix, (size_t) Batch * Channel * K * K * Height_out * Width_out * sizeof(float));
     cudaMalloc((void**)&matmul_output, Batch * Map_out * Height_out * Width_out * sizeof(float));
@@ -194,7 +207,15 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
     int num_blocks = ceil(1.0f * num_threads / BLOCK_SIZE);
     matrix_unrolling_kernel<<<num_blocks, BLOCK_SIZE>>>(device_input, unrolled_matrix, Batch, Channel, Height, Width, K);
 
-    // TODO: Set the kernel dimensions and call the matmul kernel
+    // TODO: load the float matrices into a half matrix
+    dim3 weight_grid(rounded_K/16 * rounded_M/16, 1, 1);
+    dim3 weight_block(256, 1, 1);
+    float_to_half<<<weight_grid, weight_block>>>(weight_matrix_half, device_mask, Map_out, Height_unrolled, rounded_M, rounded_K);
+    dim3 unroll_grid(rounded_N/16 * rounded_K/16, 1, 1);
+    dim3 unroll_block(256, 1, 1);
+    float_to_half<<<unroll_grid, unroll_block>>>(unrolled_matrix_half, unrolled_matrix, Height_unrolled, Width_unrolled, rounded_K, rounded_N);
+
+
     int matmul_w = ceil(1.0f * Width_unrolled / TILE_WIDTH); 
     int matmul_h = ceil(1.0f * Map_out / TILE_WIDTH);
     dim3 dimGrid(matmul_w, matmul_h, 1);
@@ -203,11 +224,12 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
 
     // Permute the result of matrix multiplication
     const int out_image_size = Height_out * Width_out;
-    dim3 permute_kernel_grid_dim((out_image_size - 1) / BLOCK_SIZE + 1, Batch, 1);
+    dim3 permute_kernel_grid_dim(ceil(out_image_size / BLOCK_SIZE), Batch, 1);
     matrix_permute_kernel<<<permute_kernel_grid_dim, BLOCK_SIZE>>>(
         matmul_output, device_output, Map_out, Batch, out_image_size
     );
-
+    
+    cudaFree(out_padded_matrix);
     cudaFree(matmul_output);
     cudaFree(unrolled_matrix);
 }
