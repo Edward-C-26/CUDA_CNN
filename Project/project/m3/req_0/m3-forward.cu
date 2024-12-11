@@ -1,6 +1,7 @@
+
 #include <cmath>
 #include <iostream>
-#include "gpu-new-forward.h"
+#include "../../src/layer/custom/gpu-new-forward.h"
 
 #define TILE_WIDTH 16
 #define BLOCK_SIZE 256
@@ -133,29 +134,26 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
     size_t i_size = Channel * Height * Width * sizeof(float);
     size_t o_size = Map_out * Height_out * Width_out * sizeof(float);
     size_t r_size = Height_unrolled * Width_unrolled * sizeof(float);
+    
+    // in total
+    size_t output_size = Batch * Map_out * Height_out * Width_out * sizeof(float);
+    size_t input_size = Batch * Channel * Height * Width * sizeof(float);
+    size_t mask_size = Map_out * Channel * K * K * sizeof(float);
 
     // Moving from regular host to pinned host
     float *pinned_input, *pinned_output;
-    cudaError_t stat_in = cudaMallocHost((void**)&pinned_input, (size_t)(i_size * Batch));
-    cudaError_t stat_out = cudaMallocHost((void**)&pinned_output,(size_t)(o_size * Batch));
-    cudaMemcpy(pinned_input, host_input, (size_t)(i_size * Batch), cudaMemcpyHostToHost);
-
-    if (stat_in != cudaSuccess) {
-        printf("Error allocating pinned memory");
-    }
-    if (stat_out != cudaSuccess) {
-        printf("Error allocating pinned memory");
-    }
-
+    cudaError_t stat_in = cudaMallocHost(&pinned_input, input_size);
+    cudaError_t stat_out = cudaMallocHost(&pinned_output,(size_t)(o_size * Batch));
+    memcpy(pinned_input, host_input, input_size);
 
 
     // Allocate device memory for mask, input, and output
-    cudaMalloc((void**)device_mask_ptr, Map_out * Channel * K * K * sizeof(float));
-    cudaMalloc((void**)device_input_ptr, Batch * Channel * Height * Width * sizeof(float));
-    cudaMalloc((void**)device_output_ptr, Batch * Map_out * Height_out * Width_out * sizeof(float));
+    cudaMalloc((void**)device_mask_ptr, mask_size);
+    cudaMalloc((void**)device_input_ptr, input_size);
+    cudaMalloc((void**)device_output_ptr, output_size);
 
     // Copy mask to device (only once)
-    cudaMemcpy(*device_mask_ptr, host_mask, Map_out * Channel * K * K * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(*device_mask_ptr, host_mask, mask_size, cudaMemcpyHostToDevice);
 
     // Create CUDA streams for potential parallelism
     cudaStream_t stream0; cudaStream_t stream1; cudaStream_t stream2;
@@ -223,7 +221,7 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
     cudaFree(out0); cudaFree(out1); cudaFree(out2);
     cudaFree(roll0); cudaFree(roll1); cudaFree(roll2);
 
-    cudaMemcpy((void*)host_output, pinned_output, o_size * Batch, cudaMemcpyHostToHost);
+    memcpy((void*)host_output, pinned_output, output_size);
 
     cudaFreeHost(pinned_input);
     cudaFreeHost(pinned_output);

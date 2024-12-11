@@ -1,26 +1,44 @@
 #include <cmath>
 #include <iostream>
-#include "gpu-new-forward.h"
+#include "../../src/layer/custom/gpu-new-forward.h"
 
 #define TILE_WIDTH 16
 #define BLOCK_SIZE 256
 
 /*
-op 1: __restrict__ keyword
-code: completed
+op 2: Loop unrolling
+code: COMPELTED
 profiling: NOT COMPELTED
 
+make sure we are allowed to use #pragma unroll(N)
+
+// when n = 4 for unrolling
 Test batch size: 10000
 Loading fashion-mnist data...Done
 Loading model...Done
 Conv-GPU==
-Layer Time: 281.565 ms
-Op Time: 67.0089 ms
+Layer Time: 351.042 ms
+Op Time: 67.0687 ms
 Conv-GPU==
-Layer Time: 189.521 ms
-Op Time: 57.8037 ms
+Layer Time: 303.868 ms
+Op Time: 56.077 ms
 
 Test Accuracy: 0.8714
+
+
+// when n = 8 for unrolling
+Test batch size: 10000
+Loading fashion-mnist data...Done
+Loading model...Done
+Conv-GPU==
+Layer Time: 244.01 ms
+Op Time: 67.8418 ms
+Conv-GPU==
+Layer Time: 201.629 ms
+Op Time: 56.1041 ms
+
+Test Accuracy: 0.8714
+
 */
 
 __global__ void matrix_unrolling_kernel(const float* __restrict__ input, float* __restrict__ output,
@@ -60,10 +78,13 @@ __global__ void matrix_unrolling_kernel(const float* __restrict__ input, float* 
         size_t h_out = (t / Width_out) % Height_out;
         size_t w_out = t % Width_out;
 
+        #pragma unroll(4) 
         for (int c = 0; c < Channel; c++) {
             int w_base = c * (K * K);             // Base offset for each channel
 
+            #pragma unroll(8)
             for (int p = 0; p < K; p++) {
+                #pragma unroll(8)
                 for (int q = 0; q < K; q++) {
                     size_t h_unroll = w_base + p * K + q;
                     size_t w_unroll = h_out * Width_out + w_out;
@@ -93,6 +114,7 @@ __global__ void matrixMultiplyShared(const float* __restrict__ A, const float* _
     int row = by * TILE_WIDTH + ty, col = bx * TILE_WIDTH + tx;
     float val = 0;
 
+    #pragma unroll(16)
     for (int tileId = 0; tileId < (numAColumns - 1) / TILE_WIDTH + 1; tileId++) {
         if (row < numARows && tileId * TILE_WIDTH + tx < numAColumns) {
             tileA[ty][tx] = A[(size_t) row * numAColumns + tileId * TILE_WIDTH + tx];
@@ -128,6 +150,7 @@ __global__ void matrix_permute_kernel(const float* __restrict__ input, float* __
     int b = blockIdx.y;
     int x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
     if (x < image_size) {
+        #pragma unroll(4)
         for (int m = 0; m < Map_out; m++) {
             output[b * Map_out * image_size + m * image_size + x] =
                     input[m * Batch * image_size + b * image_size + x];
