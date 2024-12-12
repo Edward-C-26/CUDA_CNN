@@ -129,6 +129,7 @@ __global__ void matrixMultiplyShared(const float* __restrict__ A, const float* _
         __syncthreads();
 
         if (row < numCRows && col < numCColumns) {
+            #pragma unroll(16)
             for (int i = 0; i < TILE_WIDTH; i++) {
                 val += tileA[ty][i] * tileB[i][tx];
             }

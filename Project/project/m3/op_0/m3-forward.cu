@@ -10,7 +10,7 @@ __constant__ float weight_matrix[4096];
 /*
 op 0: Weight matrix (Kernel) in constant memory
 code: completed
-profiling: NOT COMPELTED
+profiling: completed
 
 Test batch size: 10000
 Loading fashion-mnist data...Done

@@ -69,9 +69,9 @@ __global__ void matrix_unrolling_kernel(const float *input, const float *weight_
         __syncthreads();
     }
 
-    // Permute occurs here
-    if (row < Height_unrolled && col < Width_unrolled) {
-        C[col / out_size * Map_out * Width_out * Height_out + row * Width_out * Height_out + col % out_size] = val; 
+    // // Permute occurs here
+    if (row < Height_unrolled && col < Width_unrolled && (col / out_size) < Batch && row < Map_out) {
+        C[(col / out_size) * Map_out * Width_out * Height_out + row * Width_out * Height_out + col % out_size] = val; 
     }
 
 }
