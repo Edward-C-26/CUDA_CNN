@@ -1,0 +1,8 @@
+----- M3 Submission Check -----
+This file contains what the autograder can find in your PM3 code submission,
+including the final code and the required optimizations.
+
+Student ID: ec34
+Found files: ['Project/project/src/layer/custom/m3-forward.cu', 'Project/project/m3/req_0/m3-forward.cu', 'Project/project/m3/req_1/m3-forward.cu', 'Project/project/m3/req_2/m3-forward.cu']
+Missing files: []
+-------------------------------
