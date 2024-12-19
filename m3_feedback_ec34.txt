@@ -1,0 +1,8 @@
+----- Feedback -----
+Student ID: ec34
+Assignment: m3
+Commit: 836d0af43770d878b139adb0d6d31a1c7f2521b6
+Correct Accuracy: True
+Sum of OP Times: 78.4435
+Grade: 12/12
+--------------------
